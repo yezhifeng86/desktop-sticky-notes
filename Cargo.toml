@@ -1,0 +1,35 @@
+[package]
+name = "desktop-sticky-notes"
+version = "1.0.0"
+edition = "2024"
+description = "桌面便利贴 · 单文件零依赖的 Windows 桌面计划便签 | Single-file, zero-dependency desktop sticky planner"
+authors = ["青山白马少年"]
+license = "MIT"
+repository = "https://github.com/5h7wm8gr8m-boop/desktop-sticky-notes"
+readme = "README.md"
+keywords = ["sticky-notes", "todo", "windows", "gui"]
+categories = ["gui"]
+
+[dependencies]
+chrono = "0.4.45"
+eframe = { version = "0.37.0", default-features = false, features = ["glow", "default_fonts", "clipboard"] }
+egui = { version = "0.37.0", default-features = false, features = ["default_fonts"] }
+# color_fonts 是 epaint 的特性（不在 egui 上），直接挂上来让彩色 emoji（📌✏️🗑️）能渲染
+epaint = { version = "0.37.0", default-features = false, features = ["color_fonts"] }
+raw-window-handle = "0.6"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+# 解码 .ico 给窗口/任务栏设置图标（image 已在依赖树中，只需打开 ico 特性）
+image = { version = "0.25", default-features = false, features = ["ico", "png"] }
+windows-sys = { version = "0.61.2", features = ["Win32_System_Threading", "Win32_Security", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse", "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_System_Registry", "Win32_System_LibraryLoader", "Win32_UI_Shell"] }
+
+[build-dependencies]
+# 用 windres 把 .ico 和版本信息嵌进 PE 资源（GNU 工具链下 winres 自动调用 windres）
+winres = "0.1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

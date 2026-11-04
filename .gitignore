@@ -1,0 +1,17 @@
+# 构建产物
+/target
+**/*.rs.bk
+
+# 本机 cargo 配置（含本机 target-dir 绝对路径，不入库）
+/.cargo/
+
+# 调试与日志
+*.log
+*.pdb
+
+# 系统与编辑器杂项
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
