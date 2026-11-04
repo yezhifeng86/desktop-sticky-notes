@@ -1,0 +1,14 @@
+# 统一行尾，避免 Windows/Linux 来回转换
+* text=auto
+
+*.rs       text eol=lf
+*.toml     text eol=lf
+*.md       text eol=lf
+*.py       text eol=lf
+*.json     text eol=lf
+*.lock     text eol=lf
+
+# 二进制资源不做转换
+*.png      binary
+*.ico      binary
+*.exe      binary
