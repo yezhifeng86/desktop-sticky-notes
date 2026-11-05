@@ -47,22 +47,22 @@ const DATA_DIR: &str = "desktop-sticky-notes";
 /// 嵌入的多尺寸 .ico（由 assets/gen_icon.py 生成），用于窗口/任务栏/托盘图标
 const APP_ICON: &[u8] = include_bytes!("../assets/app.ico");
 
-// ---- 配色 ----
-const C_BG: Color32 = Color32::from_rgb(0xFF, 0xF9, 0xC4);
+// ---- 配色（对齐便签黄主题，全暖色、无灰色）----
+const C_BG: Color32 = Color32::from_rgb(0xFE, 0xF9, 0xC9);
 /// 置顶区卡片底色：比普通卡深一档，整块区域一眼分得开
 const C_BG_PIN: Color32 = Color32::from_rgb(0xFF, 0xEC, 0x94);
 const C_BG_DONE: Color32 = Color32::from_rgb(0xFF, 0xF3, 0xB0);
-const C_LIGHT: Color32 = Color32::from_rgb(0xFF, 0xFD, 0xE7);
-const C_ACCENT: Color32 = Color32::from_rgb(0xFF, 0xEE, 0x58);
-const C_BORDER: Color32 = Color32::from_rgb(0xF9, 0xA8, 0x25);
-const C_TEXT: Color32 = Color32::from_rgb(0x5D, 0x40, 0x37);
-const C_TEXT2: Color32 = Color32::from_rgb(0x8D, 0x6E, 0x63);
-const C_RED: Color32 = Color32::from_rgb(0xE5, 0x39, 0x35);
-const C_ORANGE: Color32 = Color32::from_rgb(0xE6, 0x51, 0x00);
+const C_LIGHT: Color32 = Color32::from_rgb(0xFF, 0xFD, 0xE9);
+const C_ACCENT: Color32 = Color32::from_rgb(0xFC, 0xEF, 0x71);
+const C_BORDER: Color32 = Color32::from_rgb(0xED, 0xAC, 0x45);
+const C_TEXT: Color32 = Color32::from_rgb(0x59, 0x41, 0x39);
+const C_TEXT2: Color32 = Color32::from_rgb(0x88, 0x6F, 0x65);
+const C_RED: Color32 = Color32::from_rgb(0xD3, 0x48, 0x3E);
+const C_ORANGE: Color32 = Color32::from_rgb(0xD5, 0x5B, 0x25);
 const C_GREEN: Color32 = Color32::from_rgb(0x4C, 0xAF, 0x50);
-const C_ITEM_BORDER: Color32 = Color32::from_rgb(0xFF, 0xC1, 0x07);
-const C_HL: Color32 = Color32::from_rgb(0xFF, 0xEB, 0x3B);
-const C_PRIMARY: Color32 = Color32::from_rgb(0xFF, 0xC1, 0x07);
+const C_ITEM_BORDER: Color32 = Color32::from_rgb(0xF6, 0xC3, 0x43);
+const C_HL: Color32 = Color32::from_rgb(0xFF, 0xE0, 0x82);
+const C_PRIMARY: Color32 = Color32::from_rgb(0xF6, 0xC3, 0x43);
 
 // ---------------------------------------------------------------- 数据模型
 
@@ -1268,39 +1268,102 @@ impl Planner {
 
 fn setup_fonts(ctx: &Context) {
     let mut fonts = FontDefinitions::default();
-    // 字体 font-family: "微软雅黑", "Microsoft YaHei", sans-serif
-    let candidates: [(&str, &str); 4] = [
-        ("C:/Windows/Fonts/msyh.ttc", "yahei"),
-        ("C:/Windows/Fonts/msyhbd.ttc", "yahei-bold"),
-        ("C:/Windows/Fonts/simhei.ttf", "simhei"),
-        ("C:/Windows/Fonts/seguiemj.ttf", "segoe-emoji"),
-    ];
-    for (path, name) in candidates {
-        if let Ok(bytes) = std::fs::read(path) {
-            fonts.font_data.insert(
-                name.to_string(),
-                std::sync::Arc::new(FontData::from_owned(bytes)),
-            );
-            if let Some(family) = fonts.families.get_mut(&FontFamily::Proportional) {
-                // 微软雅黑排最前，缺失字形回退到 egui 默认字体
-                family.insert(0, name.to_string());
+    let load = |fonts: &mut FontDefinitions, path: &str, name: &str| -> bool {
+        match std::fs::read(path) {
+            Ok(bytes) => {
+                fonts.font_data.insert(
+                    name.to_string(),
+                    std::sync::Arc::new(FontData::from_owned(bytes)),
+                );
+                true
+            }
+            Err(_) => false,
+        }
+    };
+    let has_yahei = load(&mut fonts, "C:/Windows/Fonts/msyh.ttc", "yahei");
+    let has_bold = load(&mut fonts, "C:/Windows/Fonts/msyhbd.ttc", "yahei-bold");
+    // ☐☑✓ 等符号与彩色 emoji 由 Windows 自带字体补位（雅黑没有这些字形）
+    load(&mut fonts, "C:/Windows/Fonts/seguisym.ttf", "segoe-symbol");
+    load(&mut fonts, "C:/Windows/Fonts/seguiemj.ttf", "segoe-emoji");
+
+    // 显示顺序：微软雅黑 → 符号 → emoji → egui 自带字体兜底。
+    // 顺序不能乱：以前靠往前面插，结果黑体/粗体抢在了雅黑前面。
+    let mut chain: Vec<String> = Vec::new();
+    if has_yahei {
+        chain.push("yahei".into());
+    }
+    chain.push("segoe-symbol".into());
+    chain.push("segoe-emoji".into());
+    if let Some(defaults) = fonts.families.get(&FontFamily::Proportional) {
+        for f in defaults.clone() {
+            if !chain.contains(&f) {
+                chain.push(f);
             }
         }
     }
+    fonts.families.insert(FontFamily::Proportional, chain.clone());
+    fonts.families.insert(FontFamily::Monospace, chain);
+
+    // 粗体族：egui 的 .strong() 只加深颜色、不换字体，粗体必须换字体族
+    let mut bold: Vec<String> = Vec::new();
+    if has_bold {
+        bold.push("yahei-bold".into());
+    }
+    if has_yahei {
+        bold.push("yahei".into());
+    }
+    bold.push("segoe-symbol".into());
+    bold.push("segoe-emoji".into());
+    fonts.families.insert(FontFamily::Name("yahei-bold".into()), bold);
     ctx.set_fonts(fonts);
 }
 
 fn setup_style(ctx: &Context) {
     let mut style = (*ctx.style_of(Theme::Light)).clone();
+
+    // 对话框标题栏（Window 标题走 TextStyle::Heading）→ 微软雅黑粗体
+    style.text_styles.insert(
+        TextStyle::Heading,
+        FontId::new(18.0, FontFamily::Name("yahei-bold".into())),
+    );
+
+    // 所有文字强制暖棕色（覆盖 egui 默认的灰字）
+    style.visuals.override_text_color = Some(C_TEXT);
+    style.visuals.hyperlink_color = C_ORANGE;
+    style.visuals.warn_fg_color = C_ORANGE;
+    style.visuals.error_fg_color = C_RED;
+    style.visuals.faint_bg_color = C_BG;
+    style.visuals.extreme_bg_color = C_LIGHT;
+    style.visuals.text_edit_bg_color = Some(C_LIGHT);
+    style.visuals.code_bg_color = C_LIGHT;
+
     style.visuals.selection.bg_fill = C_PRIMARY;
     style.visuals.selection.stroke = Stroke::new(1.0, C_TEXT);
     style.visuals.window_corner_radius = CornerRadius::same(12);
+    style.visuals.menu_corner_radius = CornerRadius::same(8);
     style.visuals.window_fill = C_BG;
     style.visuals.panel_fill = C_BG;
     style.visuals.window_stroke = Stroke::new(1.0, C_BORDER);
-    style.visuals.widgets.inactive.bg_fill = C_LIGHT;
-    style.visuals.widgets.hovered.bg_fill = C_ACCENT;
-    style.visuals.widgets.active.bg_fill = C_PRIMARY;
+
+    // 控件三态全部换成暖色，egui 默认的灰底/灰字一律不要
+    let v = &mut style.visuals.widgets;
+    v.inactive.bg_fill = C_LIGHT;
+    v.inactive.weak_bg_fill = C_LIGHT;
+    v.inactive.bg_stroke = Stroke::new(1.0, C_BORDER);
+    v.inactive.fg_stroke = Stroke::new(1.0, C_TEXT);
+    v.hovered.bg_fill = C_ACCENT;
+    v.hovered.weak_bg_fill = C_ACCENT;
+    v.hovered.bg_stroke = Stroke::new(1.0, C_BORDER);
+    v.hovered.fg_stroke = Stroke::new(1.0, C_TEXT);
+    v.active.bg_fill = C_PRIMARY;
+    v.active.weak_bg_fill = C_PRIMARY;
+    v.active.bg_stroke = Stroke::new(1.0, C_BORDER);
+    v.active.fg_stroke = Stroke::new(1.0, C_TEXT);
+    v.noninteractive.bg_fill = C_BG;
+    v.noninteractive.weak_bg_fill = C_BG;
+    v.noninteractive.bg_stroke = Stroke::new(1.0, C_BORDER);
+    v.noninteractive.fg_stroke = Stroke::new(1.0, C_TEXT2);
+
     style.spacing.item_spacing = vec2(8.0, 6.0);
     // 明暗两套主题都用便签黄，避免跟随系统深色模式
     ctx.set_style_of(Theme::Light, style.clone());
@@ -1582,7 +1645,7 @@ impl Planner {
             pos2(rect.left() + 30.0, rect.center().y),
             Align2::LEFT_CENTER,
             APP_NAME,
-            FontId::proportional(14.0),
+            FontId::proportional(15.0),
             C_TEXT,
         );
 
@@ -1599,7 +1662,7 @@ impl Planner {
                 let fill = if kind == "close" {
                     C_RED
                 } else {
-                    Color32::from_black_alpha(25)
+                    C_ACCENT.gamma_multiply(0.85)
                 };
                 p.rect_filled(br, CornerRadius::same(4), fill);
             }
@@ -1611,7 +1674,7 @@ impl Planner {
                 } else if r.hovered() {
                     C_TEXT
                 } else {
-                    Color32::from_black_alpha(110)
+                    C_TEXT2
                 }
             } else {
                 C_TEXT
@@ -1657,9 +1720,30 @@ impl Planner {
                         self.show_completed = !self.show_completed;
                     }
 
-                    let resp = ui.add_sized(
-                        vec2(ui.available_width().max(60.0), 30.0),
-                        TextEdit::singleline(&mut self.search).hint_text("🔍 搜索计划..."),
+                    // 图标单独画、与文字一起垂直居中（emoji 混进 hint 会把行盒撑歪）
+                    let sw = ui.available_width().max(60.0);
+                    let (srect, _) = ui.allocate_exact_size(vec2(sw, 30.0), Sense::hover());
+                    let sp = ui.painter();
+                    sp.rect_filled(srect, CornerRadius::same(6), C_LIGHT);
+                    sp.rect_stroke(srect, CornerRadius::same(6), Stroke::new(1.0, C_BORDER), StrokeKind::Middle);
+                    sp.text(
+                        pos2(srect.left() + 8.0, srect.center().y),
+                        Align2::LEFT_CENTER,
+                        "🔍",
+                        FontId::proportional(14.0),
+                        C_TEXT2,
+                    );
+                    let row_h =
+                        ui.fonts_mut(|f| f.row_height(&TextStyle::Button.resolve(ui.style())));
+                    let trect = Rect::from_min_size(
+                        pos2(srect.left() + 28.0, srect.center().y - row_h * 0.5),
+                        vec2((srect.width() - 36.0).max(30.0), row_h),
+                    );
+                    let resp = ui.put(
+                        trect,
+                        TextEdit::singleline(&mut self.search)
+                            .hint_text("搜索计划...")
+                            .frame(Frame::NONE),
                     );
                     if resp.changed() {
                         self.search_edited = Some(Instant::now());
@@ -1692,12 +1776,9 @@ impl Planner {
                     }
                     // 右端：多选开关
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        let label = if self.select_mode {
-                            "☑ 退出多选"
-                        } else {
-                            "☐ 多选"
-                        };
-                        if ui.small_button(label).clicked() {
+                        // 与同一行的 全部/置顶… 完全同款控件，文字上下左右居中；
+                        // 不加 ☐ 前缀，选中也不改文案，状态由选中样式表达
+                        if ui.selectable_label(self.select_mode, "多选").clicked() {
                             self.select_mode = !self.select_mode;
                             self.selected.clear();
                         }
@@ -1736,17 +1817,7 @@ impl Planner {
         ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                let mut pinned_header = false;
-                let mut normal_header = false;
                 for item in &visible {
-                    let in_pinned_section = item.is_pinned && !item.is_completed;
-                    if in_pinned_section && !pinned_header {
-                        section_header(ui, "📌 置顶");
-                        pinned_header = true;
-                    } else if !in_pinned_section && pinned_header && !normal_header {
-                        section_header(ui, "📋 其他计划");
-                        normal_header = true;
-                    }
                     self.item_card(ui, ctx, item);
                 }
             });
@@ -2008,7 +2079,7 @@ impl Planner {
                 if handle_resp.dragged() {
                     C_TEXT
                 } else {
-                    Color32::from_black_alpha(120)
+                    C_TEXT2
                 },
             );
             if handle_resp.drag_started() {
@@ -2275,22 +2346,6 @@ impl Planner {
 }
 
 // ---------------------------------------------------------------- 绘制小工具
-
-fn section_header(ui: &mut Ui, text: &str) {
-    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 20.0), Sense::hover());
-    let p = ui.painter();
-    let galley = p.layout_no_wrap(text.to_string(), FontId::proportional(12.0), C_TEXT2);
-    let size = galley.size();
-    let y = rect.center().y;
-    p.galley(pos2(rect.left(), y - size.y * 0.5), galley, C_TEXT2);
-    p.line_segment(
-        [
-            pos2(rect.left() + size.x + 8.0, y),
-            pos2(rect.right(), y),
-        ],
-        Stroke::new(1.0, Color32::from_rgba_unmultiplied(0xF9, 0xA8, 0x25, 80)),
-    );
-}
 
 fn draw_rect_border(p: &Painter, rect: Rect, _radius: CornerRadius, color: Color32) {
     let stroke = Stroke::new(1.5, color);
