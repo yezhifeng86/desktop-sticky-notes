@@ -47,22 +47,47 @@ const DATA_DIR: &str = "desktop-sticky-notes";
 /// 嵌入的多尺寸 .ico（由 assets/gen_icon.py 生成），用于窗口/任务栏/托盘图标
 const APP_ICON: &[u8] = include_bytes!("../assets/app.ico");
 
-// ---- 配色（对齐便签黄主题，全暖色、无灰色）----
-const C_BG: Color32 = Color32::from_rgb(0xFE, 0xF9, 0xC9);
-/// 置顶区卡片底色：比普通卡深一档，整块区域一眼分得开
-const C_BG_PIN: Color32 = Color32::from_rgb(0xFF, 0xEC, 0x94);
-const C_BG_DONE: Color32 = Color32::from_rgb(0xFF, 0xF3, 0xB0);
-const C_LIGHT: Color32 = Color32::from_rgb(0xFF, 0xFD, 0xE9);
-const C_ACCENT: Color32 = Color32::from_rgb(0xFC, 0xEF, 0x71);
-const C_BORDER: Color32 = Color32::from_rgb(0xED, 0xAC, 0x45);
-const C_TEXT: Color32 = Color32::from_rgb(0x59, 0x41, 0x39);
-const C_TEXT2: Color32 = Color32::from_rgb(0x88, 0x6F, 0x65);
-const C_RED: Color32 = Color32::from_rgb(0xD3, 0x48, 0x3E);
-const C_ORANGE: Color32 = Color32::from_rgb(0xD5, 0x5B, 0x25);
-const C_GREEN: Color32 = Color32::from_rgb(0x4C, 0xAF, 0x50);
-const C_ITEM_BORDER: Color32 = Color32::from_rgb(0xF6, 0xC3, 0x43);
-const C_HL: Color32 = Color32::from_rgb(0xFF, 0xE0, 0x82);
-const C_PRIMARY: Color32 = Color32::from_rgb(0xF6, 0xC3, 0x43);
+// ---- 色阶阶梯：同一色相由浅到深分档，界面层次靠明度差表达（全暖色、无灰）----
+// 面（surface）进阶：窗口 → 已完成 → 普通卡 → 置顶卡（一档比一档深）
+const Y_100: Color32 = Color32::from_rgb(0xFE, 0xF9, 0xC9); // 窗口底（最浅的面）
+const Y_150: Color32 = Color32::from_rgb(0xFF, 0xF6, 0xBE); // 已完成卡（比窗口深一档）
+const Y_200: Color32 = Color32::from_rgb(0xFF, 0xF2, 0xA6); // 普通卡（比已完成深、比置顶浅）
+const Y_250: Color32 = Color32::from_rgb(0xFF, 0xEC, 0x94); // 置顶卡（最深的面）
+const Y_300: Color32 = Color32::from_rgb(0xFC, 0xEF, 0x71); // 标题栏 / 强调底
+const Y_400: Color32 = Color32::from_rgb(0xFB, 0xE4, 0x55); // 悬停
+const Y_500: Color32 = Color32::from_rgb(0xF6, 0xC3, 0x43); // 主按钮 / 激活标签 / 进度
+const Y_600: Color32 = Color32::from_rgb(0xED, 0xAC, 0x45); // 描边 / 边框
+const Y_700: Color32 = Color32::from_rgb(0xD9, 0x93, 0x1F); // 按下 / 强调描边
+// 暖中性阶（代替灰阶，色相偏暖）
+const N_050: Color32 = Color32::from_rgb(0xFF, 0xFD, 0xE9); // 输入框 / 次按钮底
+const N_300: Color32 = Color32::from_rgb(0xF2, 0xE6, 0xC4); // 卡片描边（浅）
+const N_600: Color32 = Color32::from_rgb(0x88, 0x6F, 0x65); // 次要文字
+const N_900: Color32 = Color32::from_rgb(0x59, 0x41, 0x39); // 主文字
+// 语义色阶
+const R_500: Color32 = Color32::from_rgb(0xD3, 0x48, 0x3E); // 危险 / 置顶徽章
+const R_600: Color32 = Color32::from_rgb(0xB2, 0x3A, 0x32); // 危险按下
+const O_500: Color32 = Color32::from_rgb(0xD5, 0x5B, 0x25); // 警告
+const G_500: Color32 = Color32::from_rgb(0x43, 0xA0, 0x47); // 完成
+
+// ---- 语义别名（调用点沿用旧名，颜色全部来自上面的色阶）----
+const C_BG: Color32 = Y_100;
+const C_CARD: Color32 = Y_200;
+/// 置顶卡片：比普通卡深一档
+const C_BG_PIN: Color32 = Y_250;
+/// 已完成卡片：比窗口深一档、比普通卡浅（"做完了"的轻盈感）
+const C_BG_DONE: Color32 = Y_150;
+const C_LIGHT: Color32 = N_050;
+const C_ACCENT: Color32 = Y_300;
+const C_BORDER: Color32 = Y_600;
+const C_TEXT: Color32 = N_900;
+const C_TEXT2: Color32 = N_600;
+const C_RED: Color32 = R_500;
+const C_ORANGE: Color32 = O_500;
+const C_GREEN: Color32 = G_500;
+const C_ITEM_BORDER: Color32 = Y_600;
+const C_CARD_BORDER: Color32 = N_300;
+const C_HL: Color32 = Y_400;
+const C_PRIMARY: Color32 = Y_500;
 
 // ---------------------------------------------------------------- 数据模型
 
@@ -1014,7 +1039,13 @@ impl Planner {
     }
 
     fn apply_pending_drop(&mut self) {
-        if let (Some(id), Some(pt)) = (self.drop_id.take(), self.drop_pt.take()) {
+        // 两个字段必须都在才能取：否则 drop_pt 未到时 drop_id 会被白白取走，拖拽永远不生效
+        if self.drop_id.is_none() || self.drop_pt.is_none() {
+            return;
+        }
+        let id = self.drop_id.take().unwrap();
+        let pt = self.drop_pt.take().unwrap();
+        {
             let target = self
                 .item_rects
                 .iter()
@@ -1027,7 +1058,8 @@ impl Planner {
                     if let (Some(from), Some(to)) = (from, to) {
                         if from != to {
                             let item = self.data.items.remove(from);
-                            let to = if from < to { to - 1 } else { to };
+                            // 直接用目标原索引：向下拖时插到目标之后（原先 -1 会插回原位，
+                            // 表现为"拖了没反应"）
                             self.data.items.insert(to, item);
                             self.mark_save();
                         }
@@ -1286,14 +1318,16 @@ fn setup_fonts(ctx: &Context) {
     load(&mut fonts, "C:/Windows/Fonts/seguisym.ttf", "segoe-symbol");
     load(&mut fonts, "C:/Windows/Fonts/seguiemj.ttf", "segoe-emoji");
 
-    // 显示顺序：微软雅黑 → 符号 → emoji → egui 自带字体兜底。
+    // 显示顺序：微软雅黑 → 彩色 emoji → 单色符号 → egui 自带字体兜底。
     // 顺序不能乱：以前靠往前面插，结果黑体/粗体抢在了雅黑前面。
+    // emoji 必须排在符号字体前面：seguisym.ttf 里同样有 📌✏️🗑️🔍 这些码位，
+    // 但它是单色字形，排前面会把彩色 emoji 全染成白色剪影（实测踩过）。
     let mut chain: Vec<String> = Vec::new();
     if has_yahei {
         chain.push("yahei".into());
     }
-    chain.push("segoe-symbol".into());
     chain.push("segoe-emoji".into());
+    chain.push("segoe-symbol".into());
     if let Some(defaults) = fonts.families.get(&FontFamily::Proportional) {
         for f in defaults.clone() {
             if !chain.contains(&f) {
@@ -1312,8 +1346,8 @@ fn setup_fonts(ctx: &Context) {
     if has_yahei {
         bold.push("yahei".into());
     }
-    bold.push("segoe-symbol".into());
     bold.push("segoe-emoji".into());
+    bold.push("segoe-symbol".into());
     fonts.families.insert(FontFamily::Name("yahei-bold".into()), bold);
     ctx.set_fonts(fonts);
 }
@@ -1325,6 +1359,11 @@ fn setup_style(ctx: &Context) {
     style.text_styles.insert(
         TextStyle::Heading,
         FontId::new(18.0, FontFamily::Name("yahei-bold".into())),
+    );
+    // 按钮/标签文字（新建、已完成、全部…）→ 微软雅黑粗体
+    style.text_styles.insert(
+        TextStyle::Button,
+        FontId::new(13.0, FontFamily::Name("yahei-bold".into())),
     );
 
     // 所有文字强制暖棕色（覆盖 egui 默认的灰字）
@@ -1363,6 +1402,11 @@ fn setup_style(ctx: &Context) {
     v.noninteractive.weak_bg_fill = C_BG;
     v.noninteractive.bg_stroke = Stroke::new(1.0, C_BORDER);
     v.noninteractive.fg_stroke = Stroke::new(1.0, C_TEXT2);
+    // 对话框标题栏走 widgets.open.weak_bg_fill（egui 默认 #DCDCDC 灰，实测踩过）
+    v.open.bg_fill = C_ACCENT;
+    v.open.weak_bg_fill = C_ACCENT;
+    v.open.bg_stroke = Stroke::new(1.0, C_BORDER);
+    v.open.fg_stroke = Stroke::new(1.5, C_TEXT);
 
     style.spacing.item_spacing = vec2(8.0, 6.0);
     // 明暗两套主题都用便签黄，避免跟随系统深色模式
@@ -1634,18 +1678,19 @@ impl Planner {
             Stroke::new(1.0, C_BORDER),
         );
 
+        // 图钉用白色作顶点色 = 彩色 emoji 不被着色，显示原生红色；再放大一档
         p.text(
-            pos2(rect.left() + 8.0, rect.center().y),
+            pos2(rect.left() + 7.0, rect.center().y),
             Align2::LEFT_CENTER,
             "📌",
-            FontId::proportional(13.0),
-            C_TEXT,
+            FontId::proportional(18.0),
+            Color32::WHITE,
         );
         p.text(
-            pos2(rect.left() + 30.0, rect.center().y),
+            pos2(rect.left() + 34.0, rect.center().y),
             Align2::LEFT_CENTER,
             APP_NAME,
-            FontId::proportional(15.0),
+            FontId::new(15.0, FontFamily::Name("yahei-bold".into())),
             C_TEXT,
         );
 
@@ -1658,9 +1703,13 @@ impl Planner {
         for (kind, label) in buttons {
             let br = Rect::from_min_size(pos2(x, rect.top() + 4.0), vec2(32.0, 28.0));
             let r = ui.interact(br, Id::unique(("tb", kind)), Sense::click());
-            if r.hovered() {
+            // 彩色 emoji 不接受顶点着色，置顶开关的"开启"状态改用淡红底表达
+            let active = kind == "pin" && self.always_on_top;
+            if r.hovered() || active {
                 let fill = if kind == "close" {
                     C_RED
+                } else if active {
+                    Color32::from_rgba_unmultiplied(0xD3, 0x48, 0x3E, 70)
                 } else {
                     C_ACCENT.gamma_multiply(0.85)
                 };
@@ -1730,8 +1779,8 @@ impl Planner {
                         pos2(srect.left() + 8.0, srect.center().y),
                         Align2::LEFT_CENTER,
                         "🔍",
-                        FontId::proportional(14.0),
-                        C_TEXT2,
+                        FontId::proportional(16.0),
+                        Color32::WHITE,
                     );
                     let row_h =
                         ui.fonts_mut(|f| f.row_height(&TextStyle::Button.resolve(ui.style())));
@@ -1758,9 +1807,64 @@ impl Planner {
 
     fn tabs(&mut self, ui: &mut Ui, _ctx: &Context) {
         Frame::NONE
-            .inner_margin(Margin::symmetric(16, 4))
+            .inner_margin(Margin::symmetric(0, 4))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
+                    // 全选框：勾选 = 自动全选当前列表；再点一次 = 取消全选并退出多选
+                    ui.add_space(9.0);
+                    let visible_ids: Vec<String> = self
+                        .visible_items()
+                        .iter()
+                        .map(|i| i.id.clone())
+                        .collect();
+                    let all_selected = !visible_ids.is_empty()
+                        && visible_ids.iter().all(|id| self.selected.contains(id));
+                    let on = self.select_mode && all_selected;
+                    let (chk, chk_resp) =
+                        ui.allocate_exact_size(vec2(18.0, 18.0), Sense::click());
+                    let p = ui.painter();
+                    p.rect_filled(
+                        chk,
+                        CornerRadius::same(4),
+                        if on {
+                            C_PRIMARY
+                        } else if chk_resp.hovered() {
+                            Color32::from_rgba_unmultiplied(0xFF, 0xC1, 0x07, 40)
+                        } else {
+                            C_LIGHT
+                        },
+                    );
+                    draw_rect_border(
+                        p,
+                        chk,
+                        CornerRadius::same(4),
+                        if on {
+                            C_PRIMARY
+                        } else if chk_resp.hovered() {
+                            Y_700
+                        } else {
+                            C_BORDER
+                        },
+                    );
+                    if on {
+                        p.text(
+                            chk.center(),
+                            Align2::CENTER_CENTER,
+                            "✓",
+                            FontId::proportional(13.0),
+                            Color32::WHITE,
+                        );
+                    }
+                    if chk_resp.clicked() {
+                        if on {
+                            self.selected.clear();
+                            self.select_mode = false;
+                        } else {
+                            self.select_mode = true;
+                            self.selected.extend(visible_ids.iter().cloned());
+                        }
+                    }
+                    ui.add_space(7.0);
                     let items: [(Filter, &str); 5] = [
                         (Filter::All, "全部"),
                         (Filter::Pinned, "置顶"),
@@ -1774,15 +1878,33 @@ impl Planner {
                             self.filter = f;
                         }
                     }
-                    // 右端：多选开关
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        // 与同一行的 全部/置顶… 完全同款控件，文字上下左右居中；
-                        // 不加 ☐ 前缀，选中也不改文案，状态由选中样式表达
-                        if ui.selectable_label(self.select_mode, "多选").clicked() {
-                            self.select_mode = !self.select_mode;
-                            self.selected.clear();
+                    // 同排最右：有选中项时出现删除按钮
+                    if !self.selected.is_empty() {
+                        let bw = 56.0;
+                        let rest = ui.available_width();
+                        if rest > bw + 8.0 {
+                            ui.add_space(rest - bw - 4.0);
                         }
-                    });
+                        let (del_rect, del_resp) =
+                            ui.allocate_exact_size(vec2(bw, 20.0), Sense::click());
+                        let p = ui.painter();
+                        p.rect_filled(
+                            del_rect,
+                            CornerRadius::same(4),
+                            if del_resp.hovered() { R_600 } else { C_RED },
+                        );
+                        p.text(
+                            del_rect.center(),
+                            Align2::CENTER_CENTER,
+                            "删除",
+                            FontId::new(13.0, FontFamily::Name("yahei-bold".into())),
+                            Color32::WHITE,
+                        );
+                        if del_resp.clicked() {
+                            self.confirm_ids = self.selected.iter().cloned().collect();
+                            self.modal = Modal::Confirm;
+                        }
+                    }
                 });
             });
     }
@@ -1817,6 +1939,8 @@ impl Planner {
         ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                // 顶部留白：置顶徽章画在卡片上方8px，没留白会被滚动区裁掉
+                ui.add_space(12.0);
                 for item in &visible {
                     self.item_card(ui, ctx, item);
                 }
@@ -1829,31 +1953,19 @@ impl Planner {
         }
     }
 
-    /// 多选操作条：全选 / 反选 / 批量删除 / 退出
+    /// 多选操作条：反选 / 已选计数 / 退出（全选走左上全选框，删除走标签行最右）
     fn select_bar(&mut self, ui: &mut Ui) {
         let visible_ids: Vec<String> = self
             .visible_items()
             .iter()
             .map(|i| i.id.clone())
             .collect();
-        let all_selected =
-            !visible_ids.is_empty() && visible_ids.iter().all(|id| self.selected.contains(id));
 
         Frame::NONE
             .fill(C_LIGHT)
             .inner_margin(Margin::symmetric(16, 6))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    let all_label = if all_selected { "取消全选" } else { "全选" };
-                    if ui.button(all_label).clicked() {
-                        if all_selected {
-                            self.selected.clear();
-                        } else {
-                            for id in &visible_ids {
-                                self.selected.insert(id.clone());
-                            }
-                        }
-                    }
                     if ui.button("反选").clicked() {
                         for id in &visible_ids {
                             if !self.selected.remove(id) {
@@ -1866,15 +1978,6 @@ impl Planner {
                             .size(12.0)
                             .color(C_TEXT2),
                     );
-                    let has = !self.selected.is_empty();
-                    let del = ui.add_enabled(
-                        has,
-                        Button::new(RichText::new("删除").strong()).fill(C_RED),
-                    );
-                    if del.clicked() {
-                        self.confirm_ids = self.selected.iter().cloned().collect();
-                        self.modal = Modal::Confirm;
-                    }
                     if ui.button("退出").clicked() {
                         self.select_mode = false;
                         self.selected.clear();
@@ -1914,7 +2017,7 @@ impl Planner {
         let p = ui.painter();
         // 紧急项闪烁（urgentPulse）
         let pinned_bg = item.is_pinned && !item.is_completed;
-        let base = if pinned_bg { C_BG_PIN } else { C_BG };
+        let base = if pinned_bg { C_BG_PIN } else { C_CARD };
         let fill = if item.is_completed {
             C_BG_DONE
         } else if status == Status::Urgent {
@@ -1928,6 +2031,13 @@ impl Planner {
             base
         };
         p.rect_filled(rect, CornerRadius::same(8), fill);
+        // 卡片描边：与窗口底拉开一档，列表才有层次
+        p.rect_stroke(
+            rect,
+            CornerRadius::same(8),
+            Stroke::new(1.0, if pinned_bg { C_BORDER } else { C_CARD_BORDER }),
+            StrokeKind::Middle,
+        );
         // 左侧状态条（置顶区用更深的橙，和深色底配套）
         let bar = if pinned_bg && matches!(status, Status::Normal | Status::Warning) {
             C_ORANGE
@@ -1971,7 +2081,13 @@ impl Planner {
             p,
             chk,
             CornerRadius::same(4),
-            if sel_on { C_PRIMARY } else { border },
+            if sel_on {
+                C_PRIMARY
+            } else if chk_resp.hovered() {
+                Y_700
+            } else {
+                border
+            },
         );
         if show_check {
             p.text(
@@ -2007,14 +2123,17 @@ impl Planner {
         };
 
         if !self.select_mode {
-        let del_rect = Rect::from_min_size(pos2(step(&mut rx, 24.0), y_top), vec2(24.0, 20.0));
+        let del_rect = Rect::from_min_size(pos2(step(&mut rx, 24.0), y_top), vec2(24.0, 18.0));
         let del_resp = ui.interact(del_rect, Id::unique(("del", item.id.clone())), Sense::click());
+        if del_resp.hovered() {
+            p.rect_filled(del_rect, CornerRadius::same(4), R_600);
+        }
         p.text(
             del_resp.rect.center(),
             Align2::CENTER_CENTER,
             "🗑️",
-            FontId::proportional(13.0),
-            if del_resp.hovered() { C_RED } else { C_TEXT2 },
+            FontId::new(17.0, FontFamily::Name("yahei-bold".into())),
+            Color32::WHITE,
         );
         if del_resp.clicked() {
             self.confirm_ids = vec![item.id.clone()];
@@ -2022,34 +2141,28 @@ impl Planner {
             return;
         }
 
-        let edit_rect = Rect::from_min_size(pos2(step(&mut rx, 24.0), y_top), vec2(24.0, 20.0));
+        let edit_rect = Rect::from_min_size(pos2(step(&mut rx, 24.0), y_top), vec2(24.0, 18.0));
         let edit_resp = ui.interact(edit_rect, Id::unique(("edit", item.id.clone())), Sense::click());
         p.text(
             edit_resp.rect.center(),
             Align2::CENTER_CENTER,
             "✏️",
-            FontId::proportional(13.0),
-            if edit_resp.hovered() { C_TEXT } else { C_TEXT2 },
+            FontId::new(17.0, FontFamily::Name("yahei-bold".into())),
+            Color32::WHITE,
         );
         if edit_resp.clicked() {
             self.open_edit(Some(item.id.clone()));
             return;
         }
 
-        let pin_rect = Rect::from_min_size(pos2(step(&mut rx, 24.0), y_top), vec2(24.0, 20.0));
+        let pin_rect = Rect::from_min_size(pos2(step(&mut rx, 24.0), y_top), vec2(24.0, 18.0));
         let pin_resp = ui.interact(pin_rect, Id::unique(("pin", item.id.clone())), Sense::click());
         p.text(
             pin_resp.rect.center(),
             Align2::CENTER_CENTER,
             if item.is_pinned { "📌" } else { "📍" },
-            FontId::proportional(13.0),
-            if item.is_pinned {
-                C_RED
-            } else if pin_resp.hovered() {
-                C_TEXT
-            } else {
-                C_TEXT2
-            },
+            FontId::new(17.0, FontFamily::Name("yahei-bold".into())),
+            Color32::WHITE,
         );
         if pin_resp.clicked() {
             let id = item.id.clone();
@@ -2058,30 +2171,42 @@ impl Planner {
         }
         } // if !select_mode
 
-        // 进度百分比
+        // 进度百分比：13px 粗体，与标题行同一条中线（y_top+9）垂直居中
         let prog = format!("{}%", item.progress);
-        let prog_galley = p.layout_no_wrap(prog, FontId::proportional(11.0), C_TEXT2);
+        let prog_galley =
+            p.layout_no_wrap(prog, FontId::new(13.0, FontFamily::Name("yahei-bold".into())), C_TEXT2);
         let prog_w = prog_galley.size().x + 8.0;
         let prog_x = step(&mut rx, prog_w);
-        p.galley(pos2(prog_x, y_top + 3.0), prog_galley, C_TEXT2);
+        p.galley(
+            pos2(prog_x + 4.0, y_top + 9.0 - prog_galley.size().y * 0.5),
+            prog_galley,
+            C_TEXT2,
+        );
 
         // 拖拽手柄
         if !self.select_mode {
             let handle_rect =
-                Rect::from_min_size(pos2(step(&mut rx, 20.0), y_top), vec2(18.0, 20.0));
+                Rect::from_min_size(pos2(step(&mut rx, 20.0), y_top), vec2(20.0, 18.0));
             let handle_resp =
                 ui.interact(handle_rect, Id::unique(("drag", item.id.clone())), Sense::drag());
-            p.text(
-                handle_resp.rect.center(),
-                Align2::CENTER_CENTER,
-                "☰",
-                FontId::proportional(13.0),
-                if handle_resp.dragged() {
-                    C_TEXT
+            // 通用拖拽把手：三道圆角横杠（自绘，比字符/emoji 符号更通用耐看）
+            {
+                let hc = handle_resp.rect.center();
+                let col = if handle_resp.dragged() || handle_resp.hovered() {
+                    C_RED
                 } else {
                     C_TEXT2
-                },
-            );
+                };
+                let (bw, bh) = (13.0f32, 2.2f32);
+                for i in -1..=1i32 {
+                    let top = hc.y + i as f32 * 5.0 - bh * 0.5;
+                    p.rect_filled(
+                        Rect::from_min_size(pos2(hc.x - bw * 0.5, top), vec2(bw, bh)),
+                        CornerRadius::same(1),
+                        col,
+                    );
+                }
+            }
             if handle_resp.drag_started() {
                 self.drop_id = Some(item.id.clone());
             }
@@ -2109,7 +2234,7 @@ impl Planner {
             y,
             &title,
             &self.search_query,
-            FontId::proportional(14.0),
+            FontId::new(14.0, FontFamily::Name("yahei-bold".into())),
             title_color,
         );
 
