@@ -48,11 +48,11 @@ const DATA_DIR: &str = "desktop-sticky-notes";
 const APP_ICON: &[u8] = include_bytes!("../assets/app.ico");
 
 // ---- 色阶阶梯：同一色相由浅到深分档，界面层次靠明度差表达（全暖色、无灰）----
-// 面（surface）进阶：窗口 → 已完成 → 普通卡 → 置顶卡（一档比一档深）
+// 面（surface）进阶：窗口 → 非置顶卡（普通/已完成）→ 置顶卡（一档比一档深）
+// 非置顶卡刻意做淡，与置顶卡的色差要一眼看得出来
 const Y_100: Color32 = Color32::from_rgb(0xFE, 0xF9, 0xC9); // 窗口底（最浅的面）
-const Y_150: Color32 = Color32::from_rgb(0xFF, 0xF6, 0xBE); // 已完成卡（比窗口深一档）
-const Y_200: Color32 = Color32::from_rgb(0xFF, 0xF2, 0xA6); // 普通卡（比已完成深、比置顶浅）
-const Y_250: Color32 = Color32::from_rgb(0xFF, 0xEC, 0x94); // 置顶卡（最深的面）
+const Y_150: Color32 = Color32::from_rgb(0xFF, 0xF6, 0xBE); // 非置顶卡（淡，比窗口深一档）
+const Y_200: Color32 = Color32::from_rgb(0xFF, 0xEC, 0x94); // 置顶卡（最深的面）
 const Y_300: Color32 = Color32::from_rgb(0xFC, 0xEF, 0x71); // 标题栏 / 强调底
 const Y_400: Color32 = Color32::from_rgb(0xFB, 0xE4, 0x55); // 悬停
 const Y_500: Color32 = Color32::from_rgb(0xF6, 0xC3, 0x43); // 主按钮 / 激活标签 / 进度
@@ -71,10 +71,11 @@ const G_500: Color32 = Color32::from_rgb(0x43, 0xA0, 0x47); // 完成
 
 // ---- 语义别名（调用点沿用旧名，颜色全部来自上面的色阶）----
 const C_BG: Color32 = Y_100;
-const C_CARD: Color32 = Y_200;
-/// 置顶卡片：比普通卡深一档
-const C_BG_PIN: Color32 = Y_250;
-/// 已完成卡片：比窗口深一档、比普通卡浅（"做完了"的轻盈感）
+/// 普通卡：不置顶的淡面
+const C_CARD: Color32 = Y_150;
+/// 置顶卡片：比非置顶卡深一档，色差一眼可见
+const C_BG_PIN: Color32 = Y_200;
+/// 已完成卡片与普通卡同色（都是不置顶的淡面），靠左侧金条与绿勾区分
 const C_BG_DONE: Color32 = Y_150;
 const C_LIGHT: Color32 = N_050;
 const C_ACCENT: Color32 = Y_300;
@@ -1937,9 +1938,6 @@ impl Planner {
     }
 
     fn list(&mut self, ui: &mut Ui, ctx: &Context) {
-        if self.select_mode {
-            self.select_bar(ui);
-        }
         let visible = self.visible_items();
         self.item_rects.clear();
 
@@ -1991,39 +1989,6 @@ impl Planner {
         if !self.selected.remove(id) {
             self.selected.insert(id.to_string());
         }
-    }
-
-    /// 多选操作条：反选 / 已选计数 / 退出（全选走左上全选框，删除走标签行最右）
-    fn select_bar(&mut self, ui: &mut Ui) {
-        let visible_ids: Vec<String> = self
-            .visible_items()
-            .iter()
-            .map(|i| i.id.clone())
-            .collect();
-
-        Frame::NONE
-            .fill(C_LIGHT)
-            .inner_margin(Margin::symmetric(16, 6))
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    if ui.button("反选").clicked() {
-                        for id in &visible_ids {
-                            if !self.selected.remove(id) {
-                                self.selected.insert(id.clone());
-                            }
-                        }
-                    }
-                    ui.label(
-                        RichText::new(format!("已选 {} 项", self.selected.len()))
-                            .size(12.0)
-                            .color(C_TEXT2),
-                    );
-                    if ui.button("退出").clicked() {
-                        self.select_mode = false;
-                        self.selected.clear();
-                    }
-                });
-            });
     }
 
     fn item_card(&mut self, ui: &mut Ui, ctx: &Context, item: &Item) {
