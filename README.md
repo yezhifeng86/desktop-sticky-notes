@@ -177,7 +177,7 @@ desktop-sticky-notes/
 
 ## 许可证
 
-[MIT](LICENSE) © 2026 **青山白马少年**
+[MIT](LICENSE) © 2026 **青衫白马少年**
 
 ---
 
@@ -188,4 +188,4 @@ Download `桌面便利贴.exe` from [Releases](../../releases) and double-click 
 
 Highlights: borderless draggable/resizable window, edge-snapping auto-hide (4 edges, DPI-aware), calendar time picker, pin/progress/search/filters, multi-select batch delete, tray menu, optional autostart, single-instance lock, and a **portable JSON data file stored next to the executable**.
 
-Build: `cargo build --release` (Rust, `x86_64-pc-windows-gnu`). Full documentation in [中文](README.md). License: MIT © 青山白马少年.
+Build: `cargo build --release` (Rust, `x86_64-pc-windows-gnu`). Full documentation in [中文](README.md). License: MIT © 青衫白马少年.

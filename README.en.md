@@ -121,4 +121,4 @@ See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-[MIT](LICENSE) © 2026 **青山白马少年**
+[MIT](LICENSE) © 2026 **青衫白马少年**

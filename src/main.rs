@@ -34,7 +34,7 @@ const APP_NAME: &str = "桌面便利贴";
 /// 软件版本（关于页显示）
 const VERSION: &str = "1.0.0";
 /// 关于页作者
-const AUTHOR: &str = "青山白马少年";
+const AUTHOR: &str = "青衫白马少年";
 /// 边框缩放命中区宽度（egui 点）
 const BORDER: f32 = 6.0;
 

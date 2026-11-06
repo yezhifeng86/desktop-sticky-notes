@@ -7,7 +7,7 @@ fn main() {
     res.set("FileDescription", "桌面便利贴 - 单文件桌面计划便签");
     res.set("InternalName", "desktop-sticky-notes");
     res.set("OriginalFilename", "桌面便利贴.exe");
-    res.set("LegalCopyright", "MIT © 青山白马少年");
+    res.set("LegalCopyright", "MIT © 青衫白马少年");
     res.set("ProductVersion", "1.0.0");
     res.set("FileVersion", "1.0.0");
     // 让 windres 重新生成（图标改动时）
