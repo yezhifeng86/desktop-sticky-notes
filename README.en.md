@@ -21,10 +21,11 @@ One `.exe`, double-click to run — no VC++ runtime, no installer, no network ac
 | ✅ Task management | Create / edit / delete / pin / complete / progress bar / drag to reorder |
 | 📅 Time picker | Calendar for the date plus hour/minute dropdowns and a "Now" shortcut — no more typing `2026-11-05T09:00` |
 | 🔍 Filters & search | All / Pinned / Today / This week / Expired plus keyword search with 300 ms debounce |
-| ☑️ Multi-select | Batch mode with Select all / Invert / Batch delete (with confirmation) |
+| ☑️ Multi-select | A select-all checkbox at the left of the filter row; the delete button appears at its right (with confirmation) |
 | 🗂 Tray | Close button minimizes to tray; context menu: Show window / New plan / About / Quit |
 | 🚀 Startup & single instance | Optional autostart; launching the exe again focuses the existing window instead of starting a second process |
 | 💾 Portable data | The data file lives **next to the executable with the same name** (`.json`) — take it on a USB stick |
+| 🤖 AI interface | Built-in CLI and MCP server: an AI handed the exe path can teach itself and drive the app directly, with the UI refreshing live |
 
 ## Download
 
@@ -48,8 +49,26 @@ Uninstall = delete the exe (its sibling `桌面便利贴.json` holds your data; 
 ## Data file
 
 - Location: **same folder, same base name** as the executable, e.g. `桌面便利贴.exe` → `桌面便利贴.json`
-- Format: UTF-8 JSON, compatible with the original app (`items[].title / content / deadline / progress / isPinned / isCompleted / createdAt / updatedAt`)
+- Format: UTF-8 JSON (`items[].title / content / deadline / progress / isPinned / isCompleted / createdAt / updatedAt`)
 - Backup: just copy that `.json` file
+- External edits (CLI / AI / hand-editing) are detected and reflected in the running UI immediately — no restart
+
+## For AI agents (CLI / MCP)
+
+The program documents itself — **an AI handed the exe path can learn and drive it** without reading source code or clicking the UI.
+
+```bash
+桌面便利贴.exe --help            # human-readable manual
+桌面便利贴.exe describe --json   # machine-readable: commands, args, examples, data file, exit codes
+```
+
+CLI commands: `list` · `add <title>` · `set <selector>` · `done <selector>` · `pin <selector>` · `del <selector>...` — all accept `--json`. A selector is an id or a unique keyword from the title/content. Exit codes: `0` ok, `1` usage, `2` not found / ambiguous, `3` IO. Changes reach the running UI immediately.
+
+MCP: `桌面便利贴.exe mcp` (stdio, newline-delimited JSON-RPC) exposes `app_info`, `list_tasks`, `add_task`, `update_task`, `complete_task`, `pin_task`, `delete_task`, each with a description and JSON Schema, so a registered client surfaces them to the model with zero prompting:
+
+```json
+{"mcpServers":{"desktop-sticky-notes":{"command":"C:\\path\\to\\桌面便利贴.exe","args":["mcp"]}}}
+```
 
 ## Build from source
 

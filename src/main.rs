@@ -17,6 +17,8 @@
 // `unsafe fn` 语义（Rust 2024 会要求逐处补显式 unsafe 块，届时再迁移）。
 #![allow(unsafe_op_in_unsafe_fn)]
 
+mod cli;
+mod mcp;
 mod tray;
 mod win32;
 
@@ -433,6 +435,8 @@ struct Planner {
     drop_id: Option<String>,
     drop_pt: Option<Pos2>,
     save_pending: bool,
+    /// 上次读写数据文件的 mtime：与磁盘不一致说明被命令行/AI 外部改过，需重载
+    last_data_mtime: Option<std::time::SystemTime>,
 
     // 边缘吸附
     edge: Option<Edge>,
@@ -460,6 +464,7 @@ impl Planner {
 
         let path = data_path();
         let data = load_data(&path);
+        let last_data_mtime = std::fs::metadata(&path).ok().and_then(|m| m.modified().ok());
         let always_on_top = data.settings.always_on_top.unwrap_or(true);
 
         let (tx, rx) = std::sync::mpsc::channel();
@@ -501,6 +506,7 @@ impl Planner {
             drop_id: None,
             drop_pt: None,
             save_pending: false,
+            last_data_mtime,
             edge: None,
             pending_edge: None,
             resize: None,
@@ -534,9 +540,37 @@ impl Planner {
                 let tmp = self.path.with_extension("json.tmp");
                 if std::fs::write(&tmp, &text).is_ok() {
                     let _ = std::fs::rename(&tmp, &self.path);
+                    // 记下自己写的 mtime，之后磁盘变化才认得出是"外部改动"
+                    self.last_data_mtime =
+                        std::fs::metadata(&self.path).ok().and_then(|m| m.modified().ok());
                 }
             }
             Err(e) => eprintln!("序列化失败: {e}"),
+        }
+    }
+
+    /// 命令行 / AI 改了数据文件时自动重载，界面立即跟着变（无需重启）
+    fn poll_external_data_change(&mut self) {
+        if self.save_pending {
+            return; // 自己正要落盘，等写完这一轮再看
+        }
+        let Ok(md) = std::fs::metadata(&self.path) else { return; };
+        let Ok(mtime) = md.modified() else { return; };
+        if self.last_data_mtime == Some(mtime) {
+            return;
+        }
+        self.data = load_data(&self.path);
+        self.last_data_mtime = std::fs::metadata(&self.path).ok().and_then(|m| m.modified().ok());
+        // 清掉已不存在的选中项，避免后续批量操作对空气生效
+        self.selected.retain(|id| self.data.items.iter().any(|i| &i.id == id));
+        // 正在编辑的条目若被外部删掉，关掉编辑框，否则保存时会误建新条目
+        if let Some(id) = self.editing.clone() {
+            if !self.data.items.iter().any(|i| i.id == id) {
+                self.editing = None;
+                if matches!(self.modal, Modal::Edit) {
+                    self.modal = Modal::None;
+                }
+            }
         }
     }
 
@@ -1444,7 +1478,29 @@ fn setup_style(ctx: &Context) {
 
 // ---------------------------------------------------------------- 主入口
 
+/// release 构建是 windows 子系统、天生没有控制台；
+/// 挂到父进程控制台后终端才能看到输出（stdout 被重定向/管道时本来就通，不受影响）
+fn attach_parent_console() {
+    unsafe {
+        windows_sys::Win32::System::Console::AttachConsole(0xFFFF_FFFF); // ATTACH_PARENT_PROCESS
+    }
+}
+
 fn main() -> eframe::Result {
+    // 命令行 / AI 接口必须排在单实例锁之前：GUI 正在运行时，
+    // `exe list` 也要能读写数据，而不是把窗口唤出来就退出
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(first) = args.first() {
+        if first == "mcp" {
+            // MCP stdio 服务：stdout 只走 JSON-RPC，不附着控制台、不打印别的
+            mcp::serve();
+            return Ok(());
+        }
+        attach_parent_console();
+        let code = cli::run(&args);
+        std::process::exit(code);
+    }
+
     // 单实例锁：窗口可能正吸附隐藏着，第二次双击应该把它唤出来，
     // 而不是再开一个进程（两个进程会抢同一个数据文件）。
     let mutex_name: Vec<u16> = "Local\\桌面便利贴-单实例"
@@ -1561,6 +1617,7 @@ impl eframe::App for Planner {
         }
         self.persist_bounds(ctx);
         self.flush_save();
+        self.poll_external_data_change();
 
         // 100ms 轮询：托盘事件、边缘吸附、紧急项闪烁（100ms interval）
         ctx.request_repaint_after(Duration::from_millis(100));
