@@ -114,6 +114,9 @@ struct Item {
     updated_at: i64,
     #[serde(default)]
     color: Option<String>,
+    /// 手动排序号（拖拽后写入）；0 = 未手动排过，走截止时间兜底排序
+    #[serde(default)]
+    order: i64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -845,6 +848,7 @@ impl Planner {
                 }
             }
             None => {
+                let next_order = self.data.items.iter().map(|i| i.order).max().unwrap_or(0) + 1;
                 self.data.items.push(Item {
                     id: uuid(),
                     title,
@@ -856,6 +860,7 @@ impl Planner {
                     created_at: now,
                     updated_at: now,
                     color: None,
+                    order: next_order,
                 });
             }
         }
@@ -939,10 +944,11 @@ impl Planner {
             .cloned()
             .collect();
 
-        // 排序：置顶优先 → 有截止时间的在前、按时间升序
+        // 排序：置顶优先 → 手动顺序（拖拽写入）→ 截止时间兜底（没手动排过的仍按时间）
         list.sort_by(|a, b| {
             b.is_pinned
                 .cmp(&a.is_pinned)
+                .then_with(|| a.order.cmp(&b.order))
                 .then_with(|| match (&a.deadline, &b.deadline) {
                     (Some(x), Some(y)) => parse_deadline(x).cmp(&parse_deadline(y)),
                     (Some(_), None) => std::cmp::Ordering::Less,
@@ -1051,21 +1057,42 @@ impl Planner {
                 .iter()
                 .find(|(_, r)| r.contains(pt))
                 .map(|(tid, _)| tid.clone());
-            if let Some(target_id) = target {
-                if target_id != id {
-                    let from = self.data.items.iter().position(|i| i.id == id);
-                    let to = self.data.items.iter().position(|i| i.id == target_id);
-                    if let (Some(from), Some(to)) = (from, to) {
-                        if from != to {
-                            let item = self.data.items.remove(from);
-                            // 直接用目标原索引：向下拖时插到目标之后（原先 -1 会插回原位，
-                            // 表现为"拖了没反应"）
-                            self.data.items.insert(to, item);
-                            self.mark_save();
-                        }
+            let Some(target_id) = target else { return };
+            if target_id == id {
+                return;
+            }
+            // 必须在"可见顺序"里移动：列表每帧按 置顶→顺序→时间 重排，
+            // 只动 data 顺序会被这次重排覆盖，表现为"拖了没反应"
+            let mut vis: Vec<String> = self.visible_items().iter().map(|i| i.id.clone()).collect();
+            let (Some(from), Some(to)) = (
+                vis.iter().position(|x| *x == id),
+                vis.iter().position(|x| *x == target_id),
+            ) else {
+                return;
+            };
+            if from == to {
+                return;
+            }
+            vis.remove(from);
+            vis.insert(to, id); // to=目标原索引：向下→插到目标后；向上→插到目标前
+            // 写回：可见项按新顺序占据原槽位，不可见项原地不动；同时落 order 号
+            let vis_set: std::collections::HashSet<String> = vis.iter().cloned().collect();
+            let mut ordered = Vec::with_capacity(vis.len());
+            for (i, v) in vis.iter().enumerate() {
+                if let Some(mut it) = self.data.items.iter().find(|x| x.id == *v).cloned() {
+                    it.order = i as i64;
+                    ordered.push(it);
+                }
+            }
+            let mut it = ordered.into_iter();
+            for slot in self.data.items.iter_mut() {
+                if vis_set.contains(&slot.id) {
+                    if let Some(new_item) = it.next() {
+                        *slot = new_item;
                     }
                 }
             }
+            self.mark_save();
         }
     }
 
@@ -1945,6 +1972,19 @@ impl Planner {
                     self.item_card(ui, ctx, item);
                 }
             });
+        // 拖拽反馈：指针下的目标卡片描红边，让"拖到哪"看得见
+        if self.drop_id.is_some() {
+            if let Some(pt) = ctx.input(|i| i.pointer.latest_pos()) {
+                if let Some((_, r)) = self.item_rects.iter().find(|(_, r)| r.contains(pt)) {
+                    ui.painter().rect_stroke(
+                        *r,
+                        CornerRadius::same(8),
+                        Stroke::new(2.5, C_RED),
+                        StrokeKind::Middle,
+                    );
+                }
+            }
+        }
     }
 
     fn toggle_select(&mut self, id: &str) {
@@ -2187,8 +2227,11 @@ impl Planner {
         if !self.select_mode {
             let handle_rect =
                 Rect::from_min_size(pos2(step(&mut rx, 20.0), y_top), vec2(20.0, 18.0));
-            let handle_resp =
-                ui.interact(handle_rect, Id::unique(("drag", item.id.clone())), Sense::drag());
+            let handle_resp = ui.interact(
+                handle_rect,
+                Id::unique(("drag", item.id.clone())),
+                Sense::click_and_drag(),
+            );
             // 通用拖拽把手：三道圆角横杠（自绘，比字符/emoji 符号更通用耐看）
             {
                 let hc = handle_resp.rect.center();
