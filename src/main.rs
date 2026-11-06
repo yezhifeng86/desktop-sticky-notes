@@ -1966,7 +1966,7 @@ impl Planner {
         ScrollArea::vertical()
             .auto_shrink([false, false])
             .show(ui, |ui| {
-                // 顶部留白：置顶徽章画在卡片上方8px，没留白会被滚动区裁掉
+                // 顶部留白：标签行与首张卡片之间的呼吸间距
                 ui.add_space(12.0);
                 for item in &visible {
                     self.item_card(ui, ctx, item);
@@ -2318,21 +2318,6 @@ impl Planner {
             }
         }
 
-        // 置顶徽章
-        if item.is_pinned && !item.is_completed {
-            let badge = Rect::from_min_size(
-                pos2(rect.right() - 46.0, rect.top() - 8.0),
-                vec2(40.0, 16.0),
-            );
-            p.rect_filled(badge, CornerRadius::same(8), C_RED);
-            p.text(
-                badge.center(),
-                Align2::CENTER_CENTER,
-                "置顶",
-                FontId::proportional(10.0),
-                Color32::WHITE,
-            );
-        }
     }
 
     fn edit_modal(&mut self, ctx: &Context) {
