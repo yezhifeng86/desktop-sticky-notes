@@ -62,6 +62,25 @@ pub fn work_area(hwnd: isize) -> (i32, i32, i32, i32) {
     }
 }
 
+/// 小圆角窗口：Windows11 交给 DWM 画圆角（DWMWCP_ROUNDSMALL）。
+/// Win10 不支持该属性，返回失败直接忽略，仍是直角。
+pub fn round_window_corners(hwnd: isize) {
+    if hwnd == 0 {
+        return;
+    }
+    const DWMWA_WINDOW_CORNER_PREFERENCE: u32 = 33;
+    const DWMWCP_ROUNDSMALL: u32 = 3;
+    unsafe {
+        let pref: u32 = DWMWCP_ROUNDSMALL;
+        let _ = windows_sys::Win32::Graphics::Dwm::DwmSetWindowAttribute(
+            hwnd as *mut std::ffi::c_void,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &pref as *const u32 as *const _,
+            std::mem::size_of::<u32>() as u32,
+        );
+    }
+}
+
 pub fn cursor_pos() -> (i32, i32) {
     unsafe {
         let mut pt: POINT = std::mem::zeroed();

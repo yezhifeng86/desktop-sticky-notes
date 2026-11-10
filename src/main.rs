@@ -42,7 +42,9 @@ const BORDER: f32 = 6.0;
 #[derive(Clone, Copy)]
 struct ResizeDrag {
     edge: u8,
-    start: Pos2,
+    /// 按下时的**屏幕物理坐标**：不能用 egui 的窗口相对坐标，
+    /// 窗口一动基准就跟着变，算出来的位移会越来越大（左右拖动剧烈抖动）
+    start: (i32, i32),
     rect: (i32, i32, i32, i32),
 }
 const DATA_DIR: &str = "desktop-sticky-notes";
@@ -348,15 +350,31 @@ fn paint_runs(
     cursor - x
 }
 
-/// 简易按宽度折行（中文按 1 字符宽估算），最多返回 2 行
-fn wrap_by_width(text: &str, per_line: usize) -> Vec<String> {
-    let mut lines = Vec::new();
-    let chars: Vec<char> = text.chars().collect();
-    let mut i = 0;
-    while i < chars.len() && lines.len() < 2 {
-        let end = (i + per_line).min(chars.len());
-        lines.push(chars[i..end].iter().collect());
-        i = end;
+/// 内容折行：先按**显式换行**分段，再按宽度折行，最多 max_lines 行。
+/// 直接把带 \n 的整段丢给 layout_no_wrap 会排出多行 galley，
+/// 后续文字仍按单行推进光标 → 字压字（实测踩过）。
+fn wrap_content(text: &str, per_line: usize, max_lines: usize) -> Vec<String> {
+    let norm = text.replace("\r\n", "\n").replace('\r', "\n");
+    let mut lines: Vec<String> = Vec::new();
+    for para in norm.split('\n') {
+        if lines.len() >= max_lines {
+            break;
+        }
+        let chars: Vec<char> = para.chars().collect();
+        if chars.is_empty() {
+            lines.push(String::new());
+            continue;
+        }
+        let mut i = 0;
+        while i < chars.len() && lines.len() < max_lines {
+            let end = (i + per_line).min(chars.len());
+            lines.push(chars[i..end].iter().collect());
+            i = end;
+        }
+    }
+    // 末尾多出来的空段不占行数
+    while lines.len() > 1 && lines.last().is_some_and(|l| l.is_empty()) {
+        lines.pop();
     }
     if lines.is_empty() {
         lines.push(String::new());
@@ -1579,6 +1597,8 @@ impl eframe::App for Planner {
     fn logic(&mut self, ctx: &Context, frame: &mut eframe::Frame) {
         if self.hwnd == 0 {
             self.hwnd = win32::hwnd_from_frame(frame);
+            // 小圆角（Win11 DWM；Win10 不支持则保持直角）
+            win32::round_window_corners(self.hwnd);
         }
         // 首帧：如果恢复出来的位置在屏幕外（上次被最小化时写坏的坐标），
         // 夹回可见区域，否则窗口会开在看不见的地方。
@@ -1680,42 +1700,42 @@ impl Planner {
         let pressed = ctx.input(|i| i.pointer.any_pressed());
 
         if let Some(rs) = self.resize.take() {
-            match (pos, down) {
-                (Some(p), true) => {
-                    let dx = ((p.x - rs.start.x) * ppp).round() as i32;
-                    let dy = ((p.y - rs.start.y) * ppp).round() as i32;
-                    let (sx, sy, sw, sh) = rs.rect;
-                    let min_w = (320.0 * ppp).round() as i32;
-                    let min_h = (400.0 * ppp).round() as i32;
-                    let (_, _, aw, ah) = win32::work_area(self.hwnd);
-                    let max_w = (aw * 7 / 10).max(min_w);
-                    let max_h = (ah * 7 / 10).max(min_h);
-                    let (mut x, mut y, mut w, mut h) = (sx, sy, sw, sh);
-                    if rs.edge & 1 != 0 {
-                        w = (sw - dx).clamp(min_w, max_w);
-                        x = sx + (sw - w); // 左边缩放要同步挪 x，否则窗口会跳
-                    }
-                    if rs.edge & 2 != 0 {
-                        w = (sw + dx).clamp(min_w, max_w);
-                    }
-                    if rs.edge & 4 != 0 {
-                        h = (sh - dy).clamp(min_h, max_h);
-                        y = sy + (sh - h);
-                    }
-                    if rs.edge & 8 != 0 {
-                        h = (sh + dy).clamp(min_h, max_h);
-                    }
-                    win32::set_window_rect(self.hwnd, x, y, w, h);
-                    self.user_moved_at = Some(Instant::now());
-                    self.resize = Some(rs);
-                    // 拖拽中也给正确光标（指针可能已经离开边框）
-                    let icon = Self::resize_cursor(rs.edge);
-                    ctx.set_cursor_icon(icon);
+            if down {
+                // 屏幕坐标算位移（窗口移动/改尺寸都不影响它），避免相对坐标正反馈抖动
+                let (cx, cy) = win32::cursor_pos();
+                let dx = cx - rs.start.0;
+                let dy = cy - rs.start.1;
+                let (sx, sy, sw, sh) = rs.rect;
+                let min_w = (320.0 * ppp).round() as i32;
+                let min_h = (400.0 * ppp).round() as i32;
+                let (_, _, aw, ah) = win32::work_area(self.hwnd);
+                // 上限 = 整个工作区（原先 70% 时窗口一开就顶到上限，上下拖不动）
+                let max_w = aw.max(min_w);
+                let max_h = ah.max(min_h);
+                let (mut x, mut y, mut w, mut h) = (sx, sy, sw, sh);
+                if rs.edge & 1 != 0 {
+                    w = (sw - dx).clamp(min_w, max_w);
+                    x = sx + (sw - w); // 左边缩放要同步挪 x，否则窗口会跳
                 }
-                _ => {
-                    win32::release_mouse(); // 松手 → 结束
-                    self.user_moved_at = Some(Instant::now());
+                if rs.edge & 2 != 0 {
+                    w = (sw + dx).clamp(min_w, max_w);
                 }
+                if rs.edge & 4 != 0 {
+                    h = (sh - dy).clamp(min_h, max_h);
+                    y = sy + (sh - h);
+                }
+                if rs.edge & 8 != 0 {
+                    h = (sh + dy).clamp(min_h, max_h);
+                }
+                win32::set_window_rect(self.hwnd, x, y, w, h);
+                self.user_moved_at = Some(Instant::now());
+                self.resize = Some(rs);
+                // 拖拽中也给正确光标（指针可能已经离开边框）
+                let icon = Self::resize_cursor(rs.edge);
+                ctx.set_cursor_icon(icon);
+            } else {
+                win32::release_mouse(); // 松手 → 结束
+                self.user_moved_at = Some(Instant::now());
             }
             return;
         }
@@ -1723,10 +1743,10 @@ impl Planner {
         if let Some(e) = self.hit_edge(ctx) {
             ctx.set_cursor_icon(Self::resize_cursor(e));
             if pressed {
-                if let Some(p) = pos {
+                if pos.is_some() {
                     self.resize = Some(ResizeDrag {
                         edge: e,
-                        start: p,
+                        start: win32::cursor_pos(),
                         rect: win32::window_rect(self.hwnd),
                     });
                     win32::capture_mouse(self.hwnd);
@@ -2060,12 +2080,35 @@ impl Planner {
         let width = ui.available_width();
         let has_deadline = item.deadline.is_some();
         let has_content = !item.content.is_empty();
+
+        // 文字可用宽度按操作行同一套算法提前算出：只有先知道折几行，
+        // 才能把卡片高度做成"贴合内容"，否则内容只有一行时下面空一大块
+        let prog_w = ui
+            .painter()
+            .layout_no_wrap(
+                format!("{}%", item.progress),
+                FontId::new(13.0, FontFamily::Name("yahei-bold".into())),
+                C_TEXT2,
+            )
+            .size()
+            .x
+            + 8.0;
+        let available = (width - 140.0 - prog_w).max(40.0);
+        let per_line = (available / 13.0).max(4.0) as usize;
+        let content_lines: Vec<String> = if has_content {
+            let shown = truncate_chars(&item.content, per_line * 2);
+            wrap_content(&shown, per_line, 2)
+        } else {
+            Vec::new()
+        };
+
         let mut height = 7.0 + 18.0 + 3.0;
         if has_deadline {
             height += 14.0;
         }
         if has_content {
-            height += 32.0;
+            // 每行 16px +2px 底衬，行数按实际折行结果算
+            height += content_lines.len() as f32 * 16.0 + 2.0;
         }
         height += 7.0;
 
@@ -2321,20 +2364,17 @@ impl Planner {
             );
         }
 
-        // 内容（最多两行）
+        // 内容（最多两行；行已在开头按显式换行折好，直接画）
         if has_content {
-            y += 15.0;
-            let per_line = (available / 12.0).max(4.0) as usize;
-            let shown = truncate_chars(&item.content, per_line * 2);
-            let lines = wrap_by_width(&shown, per_line);
-            for (i, line) in lines.iter().take(2).enumerate() {
+            y += 16.0;
+            for (i, line) in content_lines.iter().enumerate() {
                 paint_runs(
                     p,
                     text_left,
-                    y + i as f32 * 15.0,
+                    y + i as f32 * 16.0,
                     line,
                     &self.search_query,
-                    FontId::proportional(12.0),
+                    FontId::proportional(13.0),
                     C_TEXT2,
                 );
             }
